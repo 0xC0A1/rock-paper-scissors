@@ -14,4 +14,10 @@ pub enum RockPaperScissorsError {
     InvalidHash,
     #[msg("Both players can't be the same")]
     BothPlayersCantBeTheSame,
+    #[msg("Game is not stale")]
+    GameIsNotStale,
+    #[msg("Player already revealed")]
+    PlayerAlreadyRevealed,
+    #[msg("Numeric overflow")]
+    NumericOverflow,
 }

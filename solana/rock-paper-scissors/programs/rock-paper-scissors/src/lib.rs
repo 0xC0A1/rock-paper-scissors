@@ -17,6 +17,34 @@ declare_id!("877CES5Ju3qoQJTCFqokCjcqjR6sFHEstfnqjqmvSXo4");
 pub mod rock_paper_scissors {
     use super::*;
 
+    pub fn initialize_settings(
+        ctx: Context<InitializeSettings>,
+        time_for_penalization: i64,
+        time_for_stale: i64,
+        player_fee_lamports: u64,
+    ) -> Result<()> {
+        initialize_settings::processor(
+            ctx,
+            time_for_penalization,
+            time_for_stale,
+            player_fee_lamports,
+        )
+    }
+
+    pub fn update_settings(
+        ctx: Context<UpdateSettings>,
+        time_for_penalization: i64,
+        time_for_stale: i64,
+        player_fee_lamports: u64,
+    ) -> Result<()> {
+        update_settings::processor(
+            ctx,
+            time_for_penalization,
+            time_for_stale,
+            player_fee_lamports,
+        )
+    }
+
     pub fn initialize_game(
         ctx: Context<InitializeGame>,
         game_id: String,
@@ -24,5 +52,20 @@ pub mod rock_paper_scissors {
         hash: [u8; 32], // Choice + Salt
     ) -> Result<()> {
         initialize_game::processor(ctx, game_id, amount, hash)
+    }
+
+    pub fn join_game(
+        ctx: Context<JoinGame>,
+        hash: [u8; 32], // Choice + Salt
+    ) -> Result<()> {
+        join_game::processor(ctx, hash)
+    }
+
+    pub fn cancel_game(ctx: Context<CancelGame>) -> Result<()> {
+        cancel_game::processor(ctx)
+    }
+
+    pub fn unwind_game(ctx: Context<UnwindGame>) -> Result<()> {
+        unwind_game::processor(ctx)
     }
 }

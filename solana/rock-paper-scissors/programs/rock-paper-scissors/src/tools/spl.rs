@@ -1,3 +1,5 @@
+// Allow deprecated transfer for classic SPL Tokens.
+#![allow(deprecated)]
 use anchor_lang::prelude::*;
 use anchor_spl::token_interface::{
     spl_token_2022, transfer, transfer_checked, Mint, TokenAccount, TokenInterface, Transfer,
@@ -39,10 +41,8 @@ pub fn transfer_spl_compatible<'info>(
             },
         );
         if let Some(seeds) = signer_seeds {
-            #[allow(deprecated)]
             transfer(ctx.with_signer(seeds), amount)?;
         } else {
-            #[allow(deprecated)]
             transfer(ctx, amount)?;
         }
     }

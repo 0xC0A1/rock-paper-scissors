@@ -36,8 +36,12 @@ pub struct CancelGame<'info> {
         token::token_program = token_program
     )]
     pub player_token_account: Box<InterfaceAccount<'info, TokenAccount>>,
-    #[account(mint::token_program = token_program)]
+    #[account(
+        mint::token_program = token_program,
+        address = game.mint
+    )]
     pub mint: Box<InterfaceAccount<'info, Mint>>,
+    #[account(address = game.token_program)]
     pub token_program: Interface<'info, TokenInterface>,
     #[account(
         address = game.first_player @ RockPaperScissorsError::InvalidPlayer,
@@ -49,6 +53,7 @@ pub fn processor(ctx: Context<CancelGame>) -> Result<()> {
     let player = &ctx.accounts.player;
     let game = &ctx.accounts.game;
     let player_key = player.key();
+
     let game_seeds = &[
         GAME.as_ref(),
         player_key.as_ref(),
@@ -56,13 +61,14 @@ pub fn processor(ctx: Context<CancelGame>) -> Result<()> {
         &[game.bump],
     ];
     let game_signer = &[&game_seeds[..]];
+    
     transfer_spl_compatible(
         &ctx.accounts.token_program,
         &mut ctx.accounts.player_escrow_token_account,
         &mut ctx.accounts.player_token_account,
         &game.to_account_info(),
         &ctx.accounts.mint,
-        game.staked_amount,
+        game.amount_to_match,
         Some(game_signer),
     )?;
     Ok(())

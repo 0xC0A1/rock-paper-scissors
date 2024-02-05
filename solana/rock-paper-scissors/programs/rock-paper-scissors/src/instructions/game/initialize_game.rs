@@ -1,7 +1,10 @@
 use anchor_lang::prelude::*;
 use anchor_spl::token_interface::{Mint, TokenAccount, TokenInterface};
 
-use crate::{transfer_lamports, transfer_spl_compatible, Game, Settings, GAME, GAME_ESCROW};
+use crate::{
+    transfer_lamports, transfer_spl_compatible, Game, Settings, TransferLamports, GAME,
+    GAME_ESCROW, SETTINGS,
+};
 
 #[derive(Accounts)]
 #[instruction(game_id: String)]
@@ -44,9 +47,16 @@ pub struct InitializeGame<'info> {
         address = settings.treasury
     )]
     pub treasury: AccountInfo<'info>,
+    #[account(
+        seeds = [SETTINGS.as_ref()],
+        bump = settings.bump,
+    )]
     pub settings: Account<'info, Settings>,
+
     #[account(mut)]
     pub player: Signer<'info>,
+
+    #[account(address = game.token_program)]
     pub token_program: Interface<'info, TokenInterface>,
     pub system_program: Program<'info, System>,
 }
@@ -59,12 +69,12 @@ pub fn processor(
 ) -> Result<()> {
     let clock = Clock::get()?;
     let game = &mut ctx.accounts.game;
+    let settings = &ctx.accounts.settings;
     let player = &ctx.accounts.player;
     let player_token_account = &mut ctx.accounts.player_token_account;
     let player_escrow_token_account = &mut ctx.accounts.player_escrow_token_account;
     let mint = &ctx.accounts.mint;
     let token_program = &ctx.accounts.token_program;
-    let system_program = &ctx.accounts.system_program;
 
     let _hash = anchor_lang::solana_program::hash::Hash::new_from_array(hash);
 
@@ -78,10 +88,12 @@ pub fn processor(
         None,
     )?;
     transfer_lamports(
-        system_program,
-        ctx.accounts.player.to_account_info(),
-        ctx.accounts.treasury.to_account_info(),
-        amount,
+        TransferLamports {
+            from: ctx.accounts.player.to_account_info(),
+            to: ctx.accounts.treasury.to_account_info(),
+            system_program: ctx.accounts.system_program.to_account_info(),
+        },
+        settings.player_fee_lamports,
     )?;
 
     game.set_inner(Game::new(
