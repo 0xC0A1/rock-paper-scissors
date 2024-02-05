@@ -68,4 +68,13 @@ pub mod rock_paper_scissors {
     pub fn unwind_game(ctx: Context<UnwindGame>) -> Result<()> {
         unwind_game::processor(ctx)
     }
+
+    pub fn reveal_choice(ctx: Context<RevealChoice>, choice: Choice, salt: [u8; 32]) -> Result<()> {
+        reveal_choice::processor(ctx, choice, salt)
+    }
+
+    pub fn settle_game(ctx: Context<SettleGame>) -> Result<()> {
+        settle_game::processor(ctx)
+    }
+
 }

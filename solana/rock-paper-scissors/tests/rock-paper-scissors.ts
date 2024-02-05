@@ -6,7 +6,8 @@ describe("rock-paper-scissors", () => {
   // Configure the client to use the local cluster.
   anchor.setProvider(anchor.AnchorProvider.env());
 
-  const program = anchor.workspace.RockPaperScissors as Program<RockPaperScissors>;
+  const program = anchor.workspace
+    .RockPaperScissors as Program<RockPaperScissors>;
 
   it("Is initialized!", async () => {
     // Add your test here.
