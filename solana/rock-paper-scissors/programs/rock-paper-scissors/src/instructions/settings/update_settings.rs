@@ -15,7 +15,6 @@ pub struct UpdateSettings<'info> {
         address = settings.treasury,
     )]
     pub signer: Signer<'info>,
-    pub system_program: Program<'info, System>,
 }
 
 pub fn processor(

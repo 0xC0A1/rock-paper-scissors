@@ -11,7 +11,7 @@ pub use instructions::*;
 pub use state::*;
 pub use tools::*;
 
-declare_id!("877CES5Ju3qoQJTCFqokCjcqjR6sFHEstfnqjqmvSXo4");
+declare_id!("rock7uz5eZdz8fb1ZEfZ1aR428ncvkYBrgebwyzaqBG");
 
 #[program]
 pub mod rock_paper_scissors {
@@ -76,5 +76,4 @@ pub mod rock_paper_scissors {
     pub fn settle_game(ctx: Context<SettleGame>) -> Result<()> {
         settle_game::processor(ctx)
     }
-
 }

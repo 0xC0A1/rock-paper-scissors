@@ -14,7 +14,7 @@ pub struct InitializeSettings<'info> {
     pub settings: Account<'info, Settings>,
     #[account(
         mut,
-        address = pubkey!("11111111111111111111111111111111")
+        address = pubkey!("rpstBRQkjzHZhsJKL6ENJXicc6nq2x49pDq7iTSRmuD")
     )]
     pub signer: Signer<'info>,
     pub system_program: Program<'info, System>,

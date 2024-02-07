@@ -5,14 +5,16 @@ seeds = false
 skip-lint = false
 
 [programs.localnet]
-rock_paper_scissors = "877CES5Ju3qoQJTCFqokCjcqjR6sFHEstfnqjqmvSXo4"
+rock_paper_scissors = "rock7uz5eZdz8fb1ZEfZ1aR428ncvkYBrgebwyzaqBG"
+[programs.devnet]
+rock_paper_scissors = "rock7uz5eZdz8fb1ZEfZ1aR428ncvkYBrgebwyzaqBG"
 
 [registry]
 url = "https://api.apr.dev"
 
 [provider]
 cluster = "Localnet"
-wallet = "/Users/kevin/.config/solana/id.json"
+wallet = "./rpstBRQkjzHZhsJKL6ENJXicc6nq2x49pDq7iTSRmuD.json"
 
 [scripts]
 test = "yarn run ts-mocha -p ./tsconfig.json -t 1000000 tests/**/*.ts"

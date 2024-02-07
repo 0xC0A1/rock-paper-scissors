@@ -1,0 +1,14 @@
+{
+  "name": "rock-paper-scissors-sdk-js",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Rock Paper Scissors SDK for JavaScript",
+  "main": "index.js",
+  "scripts": {},
+  "dependencies": {
+    "@metaplex-foundation/umi": "^0.9.1",
+    "@metaplex-foundation/umi-bundle-defaults": "0.9.1",
+    "@solana/web3.js": "^1.90.0"
+  },
+  "devDependencies": {}
+}

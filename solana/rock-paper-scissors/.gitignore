@@ -6,3 +6,8 @@ target
 node_modules
 test-ledger
 .yarn
+
+# Program Id
+rock7uz5eZdz8fb1ZEfZ1aR428ncvkYBrgebwyzaqBG.json
+# Treasury and Authority
+rpstBRQkjzHZhsJKL6ENJXicc6nq2x49pDq7iTSRmuD.json
