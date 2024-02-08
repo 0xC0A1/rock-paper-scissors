@@ -4,11 +4,12 @@ export const fundAccount = async (
   account: web3.PublicKey,
   connection: web3.Connection
 ) => {
-  const airdropSignature = await connection.requestAirdrop(
+  const txId = await connection.requestAirdrop(
     account,
     1 * web3.LAMPORTS_PER_SOL
   );
-  await connection.confirmTransaction(airdropSignature);
+  await connection.confirmTransaction(txId);
+  return txId;
 };
 
 export const sendSignedVersionedTx = async (

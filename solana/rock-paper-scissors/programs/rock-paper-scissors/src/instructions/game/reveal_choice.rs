@@ -11,8 +11,7 @@ use crate::{
 pub struct RevealChoice<'info> {
     #[account(
         mut,
-        close = player,
-        seeds = [GAME.as_ref(), player.key().as_ref(), game.game_id.as_bytes()],
+        seeds = [GAME.as_ref(), game.first_player.as_ref(), game.game_id.as_bytes()],
         bump = game.bump,
         constraint = game.state == GameState::Started @ RockPaperScissorsError::InvalidGameState,
     )]
@@ -21,7 +20,6 @@ pub struct RevealChoice<'info> {
         constraint = game.is_player(&player.key()) @ RockPaperScissorsError::InvalidPlayer,
     )]
     pub player: Signer<'info>,
-    pub system_program: Program<'info, System>,
 }
 
 fn require_player_did_not_reveal(player: &Player, game: &Game) -> Result<()> {

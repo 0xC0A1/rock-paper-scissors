@@ -1,4 +1,7 @@
-use anchor_lang::prelude::*;
+use anchor_lang::{
+    prelude::*,
+    solana_program::hash::{hashv, Hash},
+};
 use anchor_spl::token_interface::{Mint, TokenAccount, TokenInterface};
 
 use crate::{
@@ -56,7 +59,6 @@ pub struct InitializeGame<'info> {
     #[account(mut)]
     pub player: Signer<'info>,
 
-    #[account(address = game.token_program)]
     pub token_program: Interface<'info, TokenInterface>,
     pub system_program: Program<'info, System>,
 }
@@ -76,7 +78,7 @@ pub fn processor(
     let mint = &ctx.accounts.mint;
     let token_program = &ctx.accounts.token_program;
 
-    let _hash = anchor_lang::solana_program::hash::Hash::new_from_array(hash);
+    let _hash = Hash::new_from_array(hash);
 
     transfer_spl_compatible(
         token_program,

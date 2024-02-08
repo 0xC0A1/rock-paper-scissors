@@ -166,7 +166,7 @@ pub fn processor(ctx: Context<SettleGame>) -> Result<()> {
             winner_token_account,
             &game.to_account_info(),
             mint,
-            amount_won,
+            game.amount_to_match,
             Some(game_signer),
         )?;
         transfer_spl_compatible(

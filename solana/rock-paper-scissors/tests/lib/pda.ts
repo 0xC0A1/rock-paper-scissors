@@ -14,3 +14,13 @@ export const buildGamePda = (
     [b`game`, player.toBuffer(), encode(gameId)],
     program.programId
   );
+
+export const buildEscrowPda = (
+  program: Program<RockPaperScissors>,
+  game: web3.PublicKey,
+  player: web3.PublicKey
+) =>
+  web3.PublicKey.findProgramAddressSync(
+    [b`game_escrow`, game.toBuffer(), player.toBuffer()],
+    program.programId
+  );

@@ -10,7 +10,7 @@ use crate::{
 pub struct JoinGame<'info> {
     #[account(
         mut,
-        seeds = [GAME.as_ref(), player.key().as_ref(), game.game_id.as_bytes()],
+        seeds = [GAME.as_ref(), game.first_player.key().as_ref(), game.game_id.as_bytes()],
         bump = game.bump,
     )]
     pub game: Account<'info, Game>,
