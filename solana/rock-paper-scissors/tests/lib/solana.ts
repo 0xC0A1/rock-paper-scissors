@@ -1,8 +1,8 @@
 import { web3 } from "@coral-xyz/anchor";
 
 export const fundAccount = async (
-  connection: web3.Connection,
-  account: web3.PublicKey
+  account: web3.PublicKey,
+  connection: web3.Connection
 ) => {
   const airdropSignature = await connection.requestAirdrop(
     account,

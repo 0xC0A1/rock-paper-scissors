@@ -2,8 +2,6 @@ use anchor_lang::prelude::*;
 
 #[error_code]
 pub enum RockPaperScissorsError {
-    #[msg("Custom error message")]
-    CustomError,
     #[msg("Account is not a player in the game")]
     AccountIsNotAPlayerInTheGame,
     #[msg("Invalid game state")]
