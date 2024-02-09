@@ -1,6 +1,6 @@
 import "dotenv/config";
 import * as anchor from "@coral-xyz/anchor";
-import { ProgramTestContext, startAnchor } from "solana-bankrun";
+import { Clock, ProgramTestContext, startAnchor } from "solana-bankrun";
 import { BankrunProvider } from "anchor-bankrun";
 import toml from "toml";
 import fs from "fs/promises";
@@ -17,6 +17,7 @@ import { BN } from "bn.js";
 import { Choice, choiceToString } from "./lib/choice";
 import { getHashedSaltAndChoice, getSalt } from "./lib/hashing";
 import { buildAccounts as buildTestAccounts } from "./test-accounts";
+import { expect } from "chai";
 
 const MAINNET_RPC =
   process.env.MAINNET_RPC || "https://api.mainnet-beta.solana.com";
@@ -33,11 +34,26 @@ const FEE_LAMPORTS = new anchor.BN(0.025 * anchor.web3.LAMPORTS_PER_SOL);
 const readTomlFile = async (path: string) =>
   toml.parse(await fs.readFile(path, "utf-8"));
 
+/**
+ * [First Game - Happy Path]
+ */
 const FIRST_GAME = {
   gameId: "game1",
   firstPlayerChoice: Choice.Rock,
   firstPlayerSalt: getSalt(),
   secondPlayerChoice: Choice.Paper,
+  secondPlayerSalt: getSalt(),
+  amountToMatch: new BN(10_000000000),
+};
+
+/**
+ * [Second Game - Forfeit Path]
+ */
+const SECOND_GAME = {
+  gameId: "game2",
+  firstPlayerChoice: Choice.Paper,
+  firstPlayerSalt: getSalt(),
+  secondPlayerChoice: Choice.Scissors,
   secondPlayerSalt: getSalt(),
   amountToMatch: new BN(10_000000000),
 };
@@ -78,15 +94,28 @@ let secondPlayerAta: anchor.web3.PublicKey;
  */
 let firstGamePda: anchor.web3.PublicKey;
 /**
- * First player's escrow
+ * First game - First player's escrow
  */
 let firstGameFirstPlayerEscrowAta: anchor.web3.PublicKey;
 /**
- * Second player's escrow
+ * First game - Second player's escrow
  */
 let firstGameSecondPlayerEscrowAta: anchor.web3.PublicKey;
 
-describe("Rock Paper Scissors - Happy Path", () => {
+/**
+ * Second game
+ */
+let secondGamePda: anchor.web3.PublicKey;
+/**
+ * Second game - First player's escrow
+ */
+let secondGameFirstPlayerEscrowAta: anchor.web3.PublicKey;
+/**
+ * Second game - Second player's escrow
+ */
+let secondGameSecondPlayerEscrowAta: anchor.web3.PublicKey;
+
+describe("Rock Paper Scissors - Test Suite", () => {
   before(async () => {
     const mainnetConnection = new anchor.web3.Connection(MAINNET_RPC);
     const anchorToml = (await readTomlFile("Anchor.toml")) as {
@@ -128,7 +157,7 @@ describe("Rock Paper Scissors - Happy Path", () => {
     );
   });
 
-  it("Initializes settings", async () => {
+  it("[Settings] Initializes settings", async () => {
     const [settings] = buildSettingsPda(program);
 
     const ix = await program.methods
@@ -156,7 +185,7 @@ describe("Rock Paper Scissors - Happy Path", () => {
     console.log("txId:", txId);
   });
 
-  it("Updates settings", async () => {
+  it("[Settings] Updates settings", async () => {
     const ix = await program.methods
       .updateSettings(TIME_FOR_PENALIZATION, TIME_FOR_STALE, FEE_LAMPORTS)
       .accountsStrict({
@@ -175,7 +204,7 @@ describe("Rock Paper Scissors - Happy Path", () => {
     console.log("txId:", txId);
   });
 
-  it("[First Game] First player: Initializes first game", async () => {
+  it("[First Game - Happy Path] First player: Initializes first game", async () => {
     const [game] = buildGamePda(
       program,
       firstPlayer.publicKey,
@@ -216,7 +245,7 @@ describe("Rock Paper Scissors - Happy Path", () => {
     console.log("txId:", txId);
   });
 
-  it("[First Game] Second player: Joins first game", async () => {
+  it("[First Game - Happy Path] Second player: Joins first game", async () => {
     const [escrow] = buildEscrowPda(
       program,
       firstGamePda,
@@ -255,7 +284,39 @@ describe("Rock Paper Scissors - Happy Path", () => {
     console.log("txId:", txId);
   });
 
-  it("[First Game] First player: Reveals for first game", async () => {
+  it("[First Game - Happy Path] First player: Can't be cancelled since another player joined", async () => {
+    const ix = await program.methods
+      .cancelGame()
+      .accountsStrict({
+        game: firstGamePda,
+        player: firstPlayer.publicKey,
+        mint: USDC_MINT,
+        playerEscrowTokenAccount: firstGameFirstPlayerEscrowAta,
+        playerTokenAccount: firstPlayerAta,
+        tokenProgram: TOKEN_PROGRAM_ID,
+      })
+      .instruction();
+
+    try {
+      await sendSignedVersionedTx(
+        provider,
+        firstPlayer.publicKey,
+        [firstPlayer],
+        ...[ix]
+      );
+    } catch (error) {
+      if (error instanceof anchor.web3.SendTransactionError) {
+        console.log(error.message);
+        expect(error.message).to.equal(
+          "Error processing Instruction 0: custom program error: 0x1771"
+        );
+      } else {
+        throw error;
+      }
+    }
+  });
+
+  it("[First Game - Happy Path] First player: Reveals for first game", async () => {
     const ix = await program.methods
       .revealChoice(
         { [choiceToString(FIRST_GAME.firstPlayerChoice)]: {} } as any,
@@ -277,7 +338,44 @@ describe("Rock Paper Scissors - Happy Path", () => {
     console.log("txId:", txId);
   });
 
-  it("[First Game] Second player: Reveals for first game", async () => {
+  it("[First Game - Happy Path] Permissionless: Can't be unwinded since at least one player revealed", async () => {
+    const ix = await program.methods
+      .unwindGame()
+      .accountsStrict({
+        game: firstGamePda,
+        mint: USDC_MINT,
+        firstPlayer: firstPlayer.publicKey,
+        firstPlayerEscrowTokenAccount: firstGameFirstPlayerEscrowAta,
+        firstPlayerTokenAccount: firstPlayerAta,
+        secondPlayer: secondPlayer.publicKey,
+        secondPlayerEscrowTokenAccount: firstGameSecondPlayerEscrowAta,
+        secondPlayerTokenAccount: secondPlayerAta,
+        settings: settingsPda,
+        signer: authority.publicKey,
+        tokenProgram: TOKEN_PROGRAM_ID,
+      })
+      .instruction();
+
+    try {
+      await sendSignedVersionedTx(
+        provider,
+        authority.publicKey,
+        [authority],
+        ...[ix]
+      );
+    } catch (error) {
+      if (error instanceof anchor.web3.SendTransactionError) {
+        console.log(error.message);
+        expect(error.message).to.equal(
+          "Error processing Instruction 0: custom program error: 0x1775"
+        );
+      } else {
+        throw error;
+      }
+    }
+  });
+
+  it("[First Game - Happy Path] Second player: Reveals for first game", async () => {
     const ix = await program.methods
       .revealChoice(
         { [choiceToString(FIRST_GAME.secondPlayerChoice)]: {} } as any,
@@ -299,7 +397,7 @@ describe("Rock Paper Scissors - Happy Path", () => {
     console.log("txId:", txId);
   });
 
-  it("[First Game] Permissionless: Settles first game", async () => {
+  it("[First Game - Happy Path] Permissionless: Settles first game", async () => {
     const ix = await program.methods
       .settleGame()
       .accountsStrict({
@@ -325,5 +423,164 @@ describe("Rock Paper Scissors - Happy Path", () => {
     );
 
     console.log("txId:", txId);
+
+    const gameAccount = await program.account.game.fetch(firstGamePda);
+    expect(Object.keys(gameAccount.state)[0]).to.equal("secondPlayerWon");
+  });
+
+  it("[Second Game - Forfeit Path] First player: Initializes second game", async () => {
+    const [game] = buildGamePda(
+      program,
+      firstPlayer.publicKey,
+      SECOND_GAME.gameId
+    );
+    const [escrow] = buildEscrowPda(program, game, firstPlayer.publicKey);
+
+    const hash = await getHashedSaltAndChoice(
+      SECOND_GAME.firstPlayerChoice,
+      SECOND_GAME.firstPlayerSalt
+    );
+
+    const ix = await program.methods
+      .initializeGame(SECOND_GAME.gameId, SECOND_GAME.amountToMatch, [...hash])
+      .accountsStrict({
+        game,
+        mint: USDC_MINT,
+        player: firstPlayer.publicKey,
+        playerTokenAccount: firstPlayerAta,
+        settings: settingsPda,
+        playerEscrowTokenAccount: escrow,
+        treasury: authority.publicKey,
+        tokenProgram: TOKEN_PROGRAM_ID,
+        systemProgram: anchor.web3.SystemProgram.programId,
+      })
+      .instruction();
+
+    const txId = await sendSignedVersionedTx(
+      provider,
+      firstPlayer.publicKey,
+      [firstPlayer],
+      ...[ix]
+    );
+
+    secondGamePda = game;
+    secondGameFirstPlayerEscrowAta = escrow;
+
+    console.log("txId:", txId);
+  });
+
+  it("[Second Game - Forfeit Path] Second player: Joins second game", async () => {
+    const [escrow] = buildEscrowPda(
+      program,
+      secondGamePda,
+      secondPlayer.publicKey
+    );
+
+    const hash = await getHashedSaltAndChoice(
+      SECOND_GAME.secondPlayerChoice,
+      SECOND_GAME.secondPlayerSalt
+    );
+
+    const ix = await program.methods
+      .joinGame([...hash])
+      .accountsStrict({
+        game: secondGamePda,
+        mint: USDC_MINT,
+        player: secondPlayer.publicKey,
+        playerEscrowTokenAccount: escrow,
+        playerTokenAccount: secondPlayerAta,
+        settings: settingsPda,
+        treasury: authority.publicKey,
+        systemProgram: anchor.web3.SystemProgram.programId,
+        tokenProgram: TOKEN_PROGRAM_ID,
+      })
+      .instruction();
+
+    const txId = await sendSignedVersionedTx(
+      provider,
+      secondPlayer.publicKey,
+      [secondPlayer],
+      ...[ix]
+    );
+
+    secondGameSecondPlayerEscrowAta = escrow;
+
+    console.log("txId:", txId);
+  });
+
+  it("[Second Game - Forfeit Path] First player: Reveals for second game", async () => {
+    const ix = await program.methods
+      .revealChoice(
+        { [choiceToString(SECOND_GAME.firstPlayerChoice)]: {} } as any,
+        [...SECOND_GAME.firstPlayerSalt]
+      )
+      .accountsStrict({
+        game: secondGamePda,
+        player: firstPlayer.publicKey,
+      })
+      .instruction();
+
+    const txId = await sendSignedVersionedTx(
+      provider,
+      firstPlayer.publicKey,
+      [firstPlayer],
+      ...[ix]
+    );
+
+    console.log("txId:", txId);
+  });
+
+  it("[Second Game - Forfeit Path] Advance time for forfeit", async () => {
+    const currentClock = await context.banksClient.getClock();
+    const currentTimestamp = currentClock.unixTimestamp;
+    const newTimestamp =
+      currentTimestamp + BigInt(TIME_FOR_PENALIZATION.toNumber());
+    context.setClock(
+      new Clock(
+        currentClock.slot,
+        currentClock.epochStartTimestamp,
+        currentClock.epoch,
+        currentClock.leaderScheduleEpoch,
+        newTimestamp
+      )
+    );
+    console.log(
+      `Current timestamp: ${
+        currentClock.unixTimestamp
+      }, New timestamp: ${newTimestamp}, diff: ${
+        newTimestamp - currentClock.unixTimestamp
+      }, Time for penalization: ${TIME_FOR_PENALIZATION}`
+    );
+  });
+
+  it("[Second Game - Forfeit Path] Permissionless: Settles second game", async () => {
+    const ix = await program.methods
+      .settleGame()
+      .accountsStrict({
+        game: secondGamePda,
+        mint: USDC_MINT,
+        firstPlayer: firstPlayer.publicKey,
+        firstPlayerEscrowTokenAccount: secondGameFirstPlayerEscrowAta,
+        firstPlayerTokenAccount: firstPlayerAta,
+        secondPlayer: secondPlayer.publicKey,
+        secondPlayerEscrowTokenAccount: secondGameSecondPlayerEscrowAta,
+        secondPlayerTokenAccount: secondPlayerAta,
+        settings: settingsPda,
+        signer: authority.publicKey,
+        tokenProgram: TOKEN_PROGRAM_ID,
+      })
+      .instruction();
+
+    const txId = await sendSignedVersionedTx(
+      provider,
+      authority.publicKey,
+      [authority],
+      ...[ix]
+    );
+
+    console.log("txId:", txId);
+
+    const gameAccount = await program.account.game.fetch(secondGamePda);
+    expect(Object.keys(gameAccount.state)[0]).to.equal("firstPlayerWon");
   });
 });

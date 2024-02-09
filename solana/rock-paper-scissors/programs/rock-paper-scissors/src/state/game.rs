@@ -179,7 +179,7 @@ impl Game {
 
         // This player didn't reveal, but the adversary did, so forfeit
         // after the time for expiry.
-        adversary_revealed_at.unwrap() + time_for_penalization < now
+        adversary_revealed_at.unwrap() + time_for_penalization <= now
     }
 
     pub fn set_claimed(&mut self, winner: &Option<Player>, amount_won: u64, now: i64) {
@@ -226,12 +226,14 @@ impl Game {
         let did_first_player_forfeit =
             self.did_player_forfeit(Player::First, now, settings.time_for_penalization);
         if did_first_player_forfeit {
+            msg!("First player forfeited due to time elapsed. Second player wins.");
             return Ok(Some(Player::Second));
         }
 
         let did_second_player_forfeit =
             self.did_player_forfeit(Player::Second, now, settings.time_for_penalization);
         if did_second_player_forfeit {
+            msg!("Second player forfeited due to time elapsed. First player wins.");
             return Ok(Some(Player::First));
         }
 
@@ -249,8 +251,18 @@ impl Game {
         };
 
         if first_player_wins {
+            msg!(
+                "First player wins with {:?} against {:?}",
+                first_player_choice,
+                second_player_choice
+            );
             Ok(Some(Player::First))
         } else {
+            msg!(
+                "Second player wins with {:?} against {:?}",
+                second_player_choice,
+                first_player_choice
+            );
             Ok(Some(Player::Second))
         }
     }
