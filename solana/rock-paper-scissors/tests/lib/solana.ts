@@ -16,7 +16,6 @@ export const sendSignedVersionedTx = async (
       recentBlockhash: blockhash,
     }).compileToV0Message()
   );
-  tx.sign(signers);
   const txId = await provider.sendAndConfirm(tx, signers);
   return txId;
 };
