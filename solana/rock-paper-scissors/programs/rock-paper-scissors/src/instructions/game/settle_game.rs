@@ -1,5 +1,7 @@
 use anchor_lang::prelude::*;
-use anchor_spl::token_interface::{Mint, TokenAccount, TokenInterface};
+use anchor_spl::token_interface::{
+    close_account, CloseAccount, Mint, TokenAccount, TokenInterface,
+};
 
 use crate::{
     error::RockPaperScissorsError, transfer_spl_compatible, Game, GameState, Player, Settings,
@@ -27,6 +29,7 @@ pub struct SettleGame<'info> {
 
     #[account(
         mut,
+        // close = first_player, // Commented out since this is closed via CPI call
         token::mint = mint,
         token::authority = game,
         token::token_program = token_program,
@@ -46,11 +49,15 @@ pub struct SettleGame<'info> {
     )]
     pub first_player_token_account: Box<InterfaceAccount<'info, TokenAccount>>,
     /// CHECK: No check needed.
-    #[account(address = game.first_player)]
+    #[account(
+        mut,
+        address = game.first_player
+    )]
     pub first_player: AccountInfo<'info>,
 
     #[account(
         mut,
+        // close = second_player, // Commented out since this is closed via CPI call
         token::mint = mint,
         token::authority = game,
         token::token_program = token_program,
@@ -71,6 +78,7 @@ pub struct SettleGame<'info> {
     pub second_player_token_account: Box<InterfaceAccount<'info, TokenAccount>>,
     /// CHECK: No check needed.
     #[account(
+        mut,
         // Unwrapping here is fine since the game is in the started state.
         address = game.second_player.unwrap()
     )]
@@ -111,14 +119,6 @@ pub fn processor(ctx: Context<SettleGame>) -> Result<()> {
     let game_signer = &[&game_seeds[..]];
 
     let winner = game.get_winner(now, settings)?;
-
-    let amount_won: u64 = match winner {
-        Some(_) => match game.amount_to_match.checked_mul(2) {
-            Some(value) => value,
-            None => return Err(RockPaperScissorsError::NumericOverflow.into()),
-        },
-        None => 0,
-    };
 
     if winner.is_none() {
         transfer_spl_compatible(
@@ -179,6 +179,43 @@ pub fn processor(ctx: Context<SettleGame>) -> Result<()> {
             Some(game_signer),
         )?;
     }
+
+    close_account(
+        CpiContext::new(
+            ctx.accounts.token_program.to_account_info(),
+            CloseAccount {
+                account: ctx
+                    .accounts
+                    .first_player_escrow_token_account
+                    .to_account_info(),
+                destination: ctx.accounts.first_player.to_account_info(),
+                authority: game.to_account_info(),
+            },
+        )
+        .with_signer(game_signer),
+    )?;
+    close_account(
+        CpiContext::new(
+            ctx.accounts.token_program.to_account_info(),
+            CloseAccount {
+                account: ctx
+                    .accounts
+                    .second_player_escrow_token_account
+                    .to_account_info(),
+                destination: ctx.accounts.second_player.to_account_info(),
+                authority: game.to_account_info(),
+            },
+        )
+        .with_signer(game_signer),
+    )?;
+
+    let amount_won: u64 = match winner {
+        Some(_) => match game.amount_to_match.checked_mul(2) {
+            Some(value) => value,
+            None => return Err(RockPaperScissorsError::NumericOverflow.into()),
+        },
+        None => 0,
+    };
 
     game.set_claimed(&winner, amount_won, now);
 

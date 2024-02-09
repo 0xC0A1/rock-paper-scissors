@@ -1,5 +1,7 @@
 use anchor_lang::prelude::*;
-use anchor_spl::token_interface::{Mint, TokenAccount, TokenInterface};
+use anchor_spl::token_interface::{
+    close_account, CloseAccount, Mint, TokenAccount, TokenInterface,
+};
 
 use crate::{
     error::RockPaperScissorsError, transfer_spl_compatible, Game, GameState, Settings, GAME,
@@ -19,6 +21,7 @@ pub struct UnwindGame<'info> {
 
     #[account(
         mut,
+        // close = first_player, // Commented out since this is closed via CPI call
         token::mint = mint,
         token::authority = game,
         token::token_program = token_program,
@@ -38,11 +41,15 @@ pub struct UnwindGame<'info> {
     )]
     pub first_player_token_account: Box<InterfaceAccount<'info, TokenAccount>>,
     /// CHECK: No check needed.
-    #[account(address = game.first_player)]
+    #[account(
+        mut,
+        address = game.first_player
+    )]
     pub first_player: AccountInfo<'info>,
 
     #[account(
         mut,
+        // close = second_player, // Commented out since this is closed via CPI call
         token::mint = mint,
         token::authority = game,
         token::token_program = token_program,
@@ -63,6 +70,7 @@ pub struct UnwindGame<'info> {
     pub second_player_token_account: Box<InterfaceAccount<'info, TokenAccount>>,
     /// CHECK: No check needed.
     #[account(
+        mut,
         // Unwrapping here is fine since the game is in the started state.
         address = game.second_player.unwrap()
     )]
@@ -128,5 +136,34 @@ pub fn processor(ctx: Context<UnwindGame>) -> Result<()> {
         game.amount_to_match,
         Some(game_signer),
     )?;
+    close_account(
+        CpiContext::new(
+            ctx.accounts.token_program.to_account_info(),
+            CloseAccount {
+                account: ctx
+                    .accounts
+                    .first_player_escrow_token_account
+                    .to_account_info(),
+                destination: ctx.accounts.first_player.to_account_info(),
+                authority: game.to_account_info(),
+            },
+        )
+        .with_signer(game_signer),
+    )?;
+    close_account(
+        CpiContext::new(
+            ctx.accounts.token_program.to_account_info(),
+            CloseAccount {
+                account: ctx
+                    .accounts
+                    .second_player_escrow_token_account
+                    .to_account_info(),
+                destination: ctx.accounts.second_player.to_account_info(),
+                authority: game.to_account_info(),
+            },
+        )
+        .with_signer(game_signer),
+    )?;
+
     Ok(())
 }

@@ -2,8 +2,8 @@ use anchor_lang::prelude::*;
 use anchor_spl::token_interface::{Mint, TokenAccount, TokenInterface};
 
 use crate::{
-    error::RockPaperScissorsError, transfer_lamports, transfer_spl_compatible, Game, Settings,
-    TransferLamports, GAME, GAME_ESCROW, SETTINGS,
+    error::RockPaperScissorsError, transfer_lamports, transfer_spl_compatible, Game, GameState,
+    Settings, TransferLamports, GAME, GAME_ESCROW, SETTINGS,
 };
 
 #[derive(Accounts)]
@@ -12,6 +12,7 @@ pub struct JoinGame<'info> {
         mut,
         seeds = [GAME.as_ref(), game.first_player.key().as_ref(), game.game_id.as_bytes()],
         bump = game.bump,
+        constraint = game.state == GameState::Created @ RockPaperScissorsError::InvalidGameState
     )]
     pub game: Account<'info, Game>,
     #[account(

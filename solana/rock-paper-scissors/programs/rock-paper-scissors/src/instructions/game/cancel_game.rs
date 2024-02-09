@@ -1,5 +1,7 @@
 use anchor_lang::prelude::*;
-use anchor_spl::token_interface::{Mint, TokenAccount, TokenInterface};
+use anchor_spl::token_interface::{
+    close_account, CloseAccount, Mint, TokenAccount, TokenInterface,
+};
 
 use crate::{
     error::RockPaperScissorsError, transfer_spl_compatible, Game, GameState, GAME, GAME_ESCROW,
@@ -17,7 +19,7 @@ pub struct CancelGame<'info> {
     pub game: Account<'info, Game>,
     #[account(
         mut,
-        // close = player,
+        // close = player, // Commented out since this is closed via CPI call
         token::mint = mint,
         token::authority = game,
         token::token_program = token_program,
@@ -44,6 +46,7 @@ pub struct CancelGame<'info> {
     #[account(address = game.token_program)]
     pub token_program: Interface<'info, TokenInterface>,
     #[account(
+        mut,
         address = game.first_player @ RockPaperScissorsError::InvalidPlayer,
     )]
     pub player: Signer<'info>,
@@ -61,7 +64,7 @@ pub fn processor(ctx: Context<CancelGame>) -> Result<()> {
         &[game.bump],
     ];
     let game_signer = &[&game_seeds[..]];
-    
+
     transfer_spl_compatible(
         &ctx.accounts.token_program,
         &mut ctx.accounts.player_escrow_token_account,
@@ -71,5 +74,18 @@ pub fn processor(ctx: Context<CancelGame>) -> Result<()> {
         game.amount_to_match,
         Some(game_signer),
     )?;
+
+    close_account(
+        CpiContext::new(
+            ctx.accounts.token_program.to_account_info(),
+            CloseAccount {
+                account: ctx.accounts.player_escrow_token_account.to_account_info(),
+                destination: ctx.accounts.player.to_account_info(),
+                authority: ctx.accounts.game.to_account_info(),
+            },
+        )
+        .with_signer(game_signer),
+    )?;
+
     Ok(())
 }
