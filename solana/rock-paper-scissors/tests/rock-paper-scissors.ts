@@ -68,24 +68,23 @@ const buildLocalTestAta = (
 const readTomlFile = async (path: string) =>
   toml.parse(await fs.readFile(path, "utf-8"));
 
+let context: ProgramTestContext;
+let provider: BankrunProvider;
+let rpsProgram: anchor.Program<RockPaperScissors>;
+
+let settingsPda: anchor.web3.PublicKey;
+let firstGamePda: anchor.web3.PublicKey;
+
+let authority: anchor.web3.Keypair;
+
+const firstPlayer = anchor.web3.Keypair.generate();
+let firstPlayerAta: anchor.web3.PublicKey;
+let firstPlayerEscrowAta: anchor.web3.PublicKey;
+const secondPlayer = anchor.web3.Keypair.generate();
+let secondPlayerAta: anchor.web3.PublicKey;
+let secondPlayerEscrowAta: anchor.web3.PublicKey;
+
 describe("Rock Paper Scissors - Happy Path", () => {
-  const mint: anchor.web3.PublicKey = USDC_MINT;
-  let settingsPda: anchor.web3.PublicKey;
-  let firstGamePda: anchor.web3.PublicKey;
-
-  let authority: anchor.web3.Keypair;
-
-  const firstPlayer = anchor.web3.Keypair.generate();
-  let firstPlayerAta: anchor.web3.PublicKey;
-  let firstPlayerEscrowAta: anchor.web3.PublicKey;
-  const secondPlayer = anchor.web3.Keypair.generate();
-  let secondPlayerAta: anchor.web3.PublicKey;
-  let secondPlayerEscrowAta: anchor.web3.PublicKey;
-
-  let context: ProgramTestContext;
-  let provider: BankrunProvider;
-  let rpsProgram: anchor.Program<RockPaperScissors>;
-
   before(async () => {
     const mainnetConnection = new anchor.web3.Connection(MAINNET_RPC);
     const anchorToml = (await readTomlFile("Anchor.toml")) as {
@@ -255,7 +254,7 @@ describe("Rock Paper Scissors - Happy Path", () => {
       .initializeGame(FIRST_GAME.gameId, FIRST_GAME.amountToMatch, [...hash])
       .accountsStrict({
         game,
-        mint,
+        mint: USDC_MINT,
         player: firstPlayer.publicKey,
         playerTokenAccount: firstPlayerAta,
         settings: settingsPda,
@@ -295,7 +294,7 @@ describe("Rock Paper Scissors - Happy Path", () => {
       .joinGame([...hash])
       .accountsStrict({
         game: firstGamePda,
-        mint,
+        mint: USDC_MINT,
         player: secondPlayer.publicKey,
         playerEscrowTokenAccount: escrow,
         playerTokenAccount: secondPlayerAta,
@@ -367,7 +366,7 @@ describe("Rock Paper Scissors - Happy Path", () => {
       .settleGame()
       .accountsStrict({
         game: firstGamePda,
-        mint,
+        mint: USDC_MINT,
         firstPlayer: firstPlayer.publicKey,
         firstPlayerEscrowTokenAccount: firstPlayerEscrowAta,
         firstPlayerTokenAccount: firstPlayerAta,

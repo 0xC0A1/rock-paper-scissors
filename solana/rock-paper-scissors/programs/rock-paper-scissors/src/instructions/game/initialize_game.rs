@@ -1,6 +1,6 @@
 use anchor_lang::{
     prelude::*,
-    solana_program::hash::{hashv, Hash},
+    solana_program::hash::Hash,
 };
 use anchor_spl::token_interface::{Mint, TokenAccount, TokenInterface};
 
