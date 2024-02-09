@@ -19,7 +19,7 @@ pub struct InitializeGame<'info> {
         seeds = [GAME.as_ref(), player.key().as_ref(), game_id.as_bytes()],
         bump,
     )]
-    pub game: Account<'info, Game>,
+    pub game: Box<Account<'info, Game>>,
     #[account(
         init,
         token::mint = mint,
@@ -54,7 +54,7 @@ pub struct InitializeGame<'info> {
         seeds = [SETTINGS.as_ref()],
         bump = settings.bump,
     )]
-    pub settings: Account<'info, Settings>,
+    pub settings: Box<Account<'info, Settings>>,
 
     #[account(mut)]
     pub player: Signer<'info>,

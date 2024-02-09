@@ -1,25 +1,14 @@
 import { web3 } from "@coral-xyz/anchor";
-
-export const fundAccount = async (
-  account: web3.PublicKey,
-  connection: web3.Connection
-) => {
-  const txId = await connection.requestAirdrop(
-    account,
-    1 * web3.LAMPORTS_PER_SOL
-  );
-  await connection.confirmTransaction(txId);
-  return txId;
-};
+import { BankrunProvider } from "anchor-bankrun";
+import fs from "fs/promises";
 
 export const sendSignedVersionedTx = async (
-  connection: web3.Connection,
+  provider: BankrunProvider,
   payer: web3.PublicKey,
   signers: web3.Signer[],
   ...ixs: web3.TransactionInstruction[]
 ) => {
-  const { blockhash, lastValidBlockHeight } =
-    await connection.getLatestBlockhash();
+  const blockhash = provider.context.lastBlockhash;
   const tx = new web3.VersionedTransaction(
     new web3.TransactionMessage({
       payerKey: payer,
@@ -28,16 +17,11 @@ export const sendSignedVersionedTx = async (
     }).compileToV0Message()
   );
   tx.sign(signers);
-  const txId = await connection.sendTransaction(tx, { skipPreflight: true });
-  // confirm
-  const result = await connection.confirmTransaction({
-    blockhash,
-    lastValidBlockHeight,
-    signature: txId,
-  });
-  if (result.value.err) {
-    console.log("[FAILED]: txId", txId);
-    throw result.value.err;
-  }
+  const txId = await provider.sendAndConfirm(tx, signers);
   return txId;
+};
+
+export const readWalletFromFile = async (path: string) => {
+  const wallet = JSON.parse(await fs.readFile(path, "utf-8")) as number[];
+  return web3.Keypair.fromSecretKey(Uint8Array.from(wallet));
 };

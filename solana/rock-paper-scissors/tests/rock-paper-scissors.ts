@@ -1,19 +1,30 @@
+import "dotenv/config";
 import * as anchor from "@coral-xyz/anchor";
-import { Program } from "@coral-xyz/anchor";
-import { RockPaperScissors } from "../target/types/rock_paper_scissors";
+import { ProgramTestContext, startAnchor } from "solana-bankrun";
+import { BankrunProvider } from "anchor-bankrun";
+import toml from "toml";
+import fs from "fs/promises";
+import { IDL, RockPaperScissors } from "../target/types/rock_paper_scissors";
 
 import { buildEscrowPda, buildGamePda, buildSettingsPda } from "./lib/pda";
-import { fundAccount, sendSignedVersionedTx } from "./lib/solana";
+import { readWalletFromFile, sendSignedVersionedTx } from "./lib/solana";
 import {
+  ACCOUNT_SIZE,
   ASSOCIATED_TOKEN_PROGRAM_ID,
-  TOKEN_2022_PROGRAM_ID,
-  createAssociatedTokenAccount,
-  createMint,
-  mintTo,
+  AccountLayout,
+  TOKEN_PROGRAM_ID,
+  getAssociatedTokenAddressSync,
 } from "@solana/spl-token";
 import { BN } from "bn.js";
 import { Choice, choiceToString } from "./lib/choice";
 import { getHashedSaltAndChoice, getSalt } from "./lib/hashing";
+
+const MAINNET_RPC =
+  process.env.MAINNET_RPC || "https://api.mainnet-beta.solana.com";
+
+const USDC_MINT = new anchor.web3.PublicKey(
+  "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v"
+);
 
 const TIME_FOR_PENALIZATION = new anchor.BN(60 * 60 * 24 * 7);
 const TIME_FOR_STALE = new anchor.BN(60 * 60 * 24 * 7);
@@ -26,54 +37,43 @@ const FIRST_GAME = {
   firstPlayerSalt: getSalt(),
   secondPlayerChoice: Choice.Paper,
   secondPlayerSalt: getSalt(),
-  amountToMatch: new BN(100_000000000),
+  amountToMatch: new BN(10_000000000),
 };
 
-const prepareAccount = async (
-  authority: anchor.web3.Keypair,
-  targetAccount: anchor.web3.PublicKey,
+const buildLocalTestAta = (
   mint: anchor.web3.PublicKey,
-  connection: anchor.web3.Connection
+  owner: anchor.web3.PublicKey,
+  amount: number
 ) => {
-  const fundAccountTxId = await fundAccount(targetAccount, connection);
-  const ata = await createAssociatedTokenAccount(
-    connection,
-    authority,
-    mint,
-    targetAccount,
-    undefined,
-    TOKEN_2022_PROGRAM_ID,
-    ASSOCIATED_TOKEN_PROGRAM_ID
+  const ataBuffer = Buffer.alloc(ACCOUNT_SIZE);
+  AccountLayout.encode(
+    {
+      mint,
+      owner,
+      amount: BigInt(amount),
+      delegateOption: 0,
+      delegate: anchor.web3.PublicKey.default,
+      delegatedAmount: BigInt(0),
+      state: 1,
+      isNativeOption: 0,
+      isNative: BigInt(0),
+      closeAuthorityOption: 0,
+      closeAuthority: anchor.web3.PublicKey.default,
+    },
+    ataBuffer
   );
-  const mintToTxId = await mintTo(
-    connection,
-    authority,
-    mint,
-    ata,
-    authority,
-    1000_000000000,
-    undefined,
-    undefined,
-    TOKEN_2022_PROGRAM_ID
-  );
-  return { fundAccountTxId, mintToTxId, ata };
+  return ataBuffer;
 };
 
-describe("Rock Paper Scissors - Full Suite", () => {
-  // Configure the client to use the local cluster.
-  anchor.setProvider(anchor.AnchorProvider.env());
+const readTomlFile = async (path: string) =>
+  toml.parse(await fs.readFile(path, "utf-8"));
 
-  const program = anchor.workspace
-    .RockPaperScissors as Program<RockPaperScissors>;
-
-  const provider = program.provider as anchor.AnchorProvider;
-  const wallet = provider.wallet as anchor.Wallet;
-  const authority = wallet.publicKey;
-
-  let mint: anchor.web3.PublicKey;
+describe("Rock Paper Scissors - Happy Path", () => {
+  const mint: anchor.web3.PublicKey = USDC_MINT;
   let settingsPda: anchor.web3.PublicKey;
   let firstGamePda: anchor.web3.PublicKey;
-  let secondGamePda: anchor.web3.PublicKey;
+
+  let authority: anchor.web3.Keypair;
 
   const firstPlayer = anchor.web3.Keypair.generate();
   let firstPlayerAta: anchor.web3.PublicKey;
@@ -82,37 +82,119 @@ describe("Rock Paper Scissors - Full Suite", () => {
   let secondPlayerAta: anchor.web3.PublicKey;
   let secondPlayerEscrowAta: anchor.web3.PublicKey;
 
+  let context: ProgramTestContext;
+  let provider: BankrunProvider;
+  let rpsProgram: anchor.Program<RockPaperScissors>;
+
   before(async () => {
-    mint = await createMint(
-      program.provider.connection,
-      wallet.payer,
-      authority,
-      authority,
-      9,
-      undefined,
-      undefined,
-      TOKEN_2022_PROGRAM_ID
-    );
-    const { ata: firstPlayerAtaResult } = await prepareAccount(
-      wallet.payer,
+    const mainnetConnection = new anchor.web3.Connection(MAINNET_RPC);
+    const anchorToml = (await readTomlFile("Anchor.toml")) as {
+      programs: {
+        localnet: {
+          rock_paper_scissors: string;
+        };
+      };
+      provider: {
+        wallet: string;
+      };
+    };
+    authority = await readWalletFromFile(anchorToml.provider.wallet);
+    firstPlayerAta = getAssociatedTokenAddressSync(
+      USDC_MINT,
       firstPlayer.publicKey,
-      mint,
-      program.provider.connection
+      false,
+      TOKEN_PROGRAM_ID,
+      ASSOCIATED_TOKEN_PROGRAM_ID
     );
-    firstPlayerAta = firstPlayerAtaResult;
-    const { ata: secondPlayerAtaResult } = await prepareAccount(
-      wallet.payer,
+    secondPlayerAta = getAssociatedTokenAddressSync(
+      USDC_MINT,
       secondPlayer.publicKey,
-      mint,
-      program.provider.connection
+      false,
+      TOKEN_PROGRAM_ID,
+      ASSOCIATED_TOKEN_PROGRAM_ID
     );
-    secondPlayerAta = secondPlayerAtaResult;
+    context = await startAnchor(
+      "./",
+      [],
+      [
+        // Let's pull USDC mint from mainnet for testing purposes only
+        {
+          address: USDC_MINT,
+          info: await mainnetConnection.getAccountInfo(USDC_MINT),
+        },
+        // Allocate 1 sol to authority for gas and fees
+        {
+          address: authority.publicKey,
+          info: {
+            data: Buffer.alloc(0),
+            lamports: 1_000000000,
+            owner: anchor.web3.SystemProgram.programId,
+            executable: false,
+          },
+        },
+        // Allocate 1 sol to first player for gas and fees
+        {
+          address: firstPlayer.publicKey,
+          info: {
+            data: Buffer.alloc(0),
+            lamports: 1_000000000,
+            owner: anchor.web3.SystemProgram.programId,
+            executable: false,
+          },
+        },
+        // Allocate 1 sol to second player for gas and fees
+        {
+          address: secondPlayer.publicKey,
+          info: {
+            data: Buffer.alloc(0),
+            lamports: 1_000000000,
+            owner: anchor.web3.SystemProgram.programId,
+            executable: false,
+          },
+        },
+        // Allocate 100 USDC to first player [Printer go brrrr]
+        {
+          address: firstPlayerAta,
+          info: {
+            data: buildLocalTestAta(
+              USDC_MINT,
+              firstPlayer.publicKey,
+              100_000000000
+            ),
+            lamports: 1_000000000,
+            owner: TOKEN_PROGRAM_ID,
+            executable: false,
+          },
+        },
+        // Allocate 100 USDC to second player [Printer go brrrr]
+        {
+          address: secondPlayerAta,
+          info: {
+            data: buildLocalTestAta(
+              USDC_MINT,
+              secondPlayer.publicKey,
+              100_000000000
+            ),
+            lamports: 1_000000000,
+            owner: TOKEN_PROGRAM_ID,
+            executable: false,
+          },
+        },
+      ]
+    );
+    provider = new BankrunProvider(context);
+
+    rpsProgram = new anchor.Program<RockPaperScissors>(
+      IDL,
+      anchorToml.programs.localnet.rock_paper_scissors,
+      provider
+    );
   });
 
   it("Initializes settings", async () => {
-    const [settings] = buildSettingsPda(program);
+    const [settings] = buildSettingsPda(rpsProgram);
 
-    const txId = await program.methods
+    const ix = await rpsProgram.methods
       .initializeSettings(
         TIME_FOR_PENALIZATION,
         TIME_FOR_STALE,
@@ -120,10 +202,17 @@ describe("Rock Paper Scissors - Full Suite", () => {
       )
       .accountsStrict({
         settings: settings,
-        signer: authority,
+        signer: authority.publicKey,
         systemProgram: anchor.web3.SystemProgram.programId,
       })
-      .rpc();
+      .instruction();
+
+    const txId = await sendSignedVersionedTx(
+      provider,
+      authority.publicKey,
+      [authority],
+      ...[ix]
+    );
 
     settingsPda = settings;
 
@@ -131,31 +220,38 @@ describe("Rock Paper Scissors - Full Suite", () => {
   });
 
   it("Updates settings", async () => {
-    const txId = await program.methods
+    const ix = await rpsProgram.methods
       .updateSettings(TIME_FOR_PENALIZATION, TIME_FOR_STALE, FEE_LAMPORTS)
       .accountsStrict({
         settings: settingsPda,
-        signer: authority,
+        signer: authority.publicKey,
       })
-      .rpc();
+      .instruction();
+
+    const txId = await sendSignedVersionedTx(
+      provider,
+      authority.publicKey,
+      [authority],
+      ...[ix]
+    );
 
     console.log("txId:", txId);
   });
 
   it("Initializes a game", async () => {
     const [game] = buildGamePda(
-      program,
+      rpsProgram,
       firstPlayer.publicKey,
       FIRST_GAME.gameId
     );
-    const [escrow] = buildEscrowPda(program, game, firstPlayer.publicKey);
+    const [escrow] = buildEscrowPda(rpsProgram, game, firstPlayer.publicKey);
 
     const hash = await getHashedSaltAndChoice(
       FIRST_GAME.firstPlayerChoice,
       FIRST_GAME.firstPlayerSalt
     );
 
-    const ix = await program.methods
+    const ix = await rpsProgram.methods
       .initializeGame(FIRST_GAME.gameId, FIRST_GAME.amountToMatch, [...hash])
       .accountsStrict({
         game,
@@ -164,14 +260,14 @@ describe("Rock Paper Scissors - Full Suite", () => {
         playerTokenAccount: firstPlayerAta,
         settings: settingsPda,
         playerEscrowTokenAccount: escrow,
-        treasury: authority,
-        tokenProgram: TOKEN_2022_PROGRAM_ID,
+        treasury: authority.publicKey,
+        tokenProgram: TOKEN_PROGRAM_ID,
         systemProgram: anchor.web3.SystemProgram.programId,
       })
       .instruction();
 
     const txId = await sendSignedVersionedTx(
-      program.provider.connection,
+      provider,
       firstPlayer.publicKey,
       [firstPlayer],
       ...[ix]
@@ -185,7 +281,7 @@ describe("Rock Paper Scissors - Full Suite", () => {
 
   it("Joins a game", async () => {
     const [escrow] = buildEscrowPda(
-      program,
+      rpsProgram,
       firstGamePda,
       secondPlayer.publicKey
     );
@@ -195,7 +291,7 @@ describe("Rock Paper Scissors - Full Suite", () => {
       FIRST_GAME.secondPlayerSalt
     );
 
-    const ix = await program.methods
+    const ix = await rpsProgram.methods
       .joinGame([...hash])
       .accountsStrict({
         game: firstGamePda,
@@ -204,14 +300,14 @@ describe("Rock Paper Scissors - Full Suite", () => {
         playerEscrowTokenAccount: escrow,
         playerTokenAccount: secondPlayerAta,
         settings: settingsPda,
-        treasury: authority,
+        treasury: authority.publicKey,
         systemProgram: anchor.web3.SystemProgram.programId,
-        tokenProgram: TOKEN_2022_PROGRAM_ID,
+        tokenProgram: TOKEN_PROGRAM_ID,
       })
       .instruction();
 
     const txId = await sendSignedVersionedTx(
-      program.provider.connection,
+      provider,
       secondPlayer.publicKey,
       [secondPlayer],
       ...[ix]
@@ -223,7 +319,7 @@ describe("Rock Paper Scissors - Full Suite", () => {
   });
 
   it("First player reveals", async () => {
-    const ix = await program.methods
+    const ix = await rpsProgram.methods
       .revealChoice(
         { [choiceToString(FIRST_GAME.firstPlayerChoice)]: {} } as any,
         [...FIRST_GAME.firstPlayerSalt]
@@ -235,7 +331,7 @@ describe("Rock Paper Scissors - Full Suite", () => {
       .instruction();
 
     const txId = await sendSignedVersionedTx(
-      program.provider.connection,
+      provider,
       firstPlayer.publicKey,
       [firstPlayer],
       ...[ix]
@@ -245,7 +341,7 @@ describe("Rock Paper Scissors - Full Suite", () => {
   });
 
   it("Second player reveals", async () => {
-    const ix = await program.methods
+    const ix = await rpsProgram.methods
       .revealChoice(
         { [choiceToString(FIRST_GAME.secondPlayerChoice)]: {} } as any,
         [...FIRST_GAME.secondPlayerSalt]
@@ -257,7 +353,7 @@ describe("Rock Paper Scissors - Full Suite", () => {
       .instruction();
 
     const txId = await sendSignedVersionedTx(
-      program.provider.connection,
+      provider,
       secondPlayer.publicKey,
       [secondPlayer],
       ...[ix]
@@ -267,7 +363,7 @@ describe("Rock Paper Scissors - Full Suite", () => {
   });
 
   it("Settles the game", async () => {
-    const txId = await program.methods
+    const ix = await rpsProgram.methods
       .settleGame()
       .accountsStrict({
         game: firstGamePda,
@@ -279,10 +375,17 @@ describe("Rock Paper Scissors - Full Suite", () => {
         secondPlayerEscrowTokenAccount: secondPlayerEscrowAta,
         secondPlayerTokenAccount: secondPlayerAta,
         settings: settingsPda,
-        signer: authority,
-        tokenProgram: TOKEN_2022_PROGRAM_ID,
+        signer: authority.publicKey,
+        tokenProgram: TOKEN_PROGRAM_ID,
       })
-      .rpc({ skipPreflight: true });
+      .instruction();
+
+    const txId = await sendSignedVersionedTx(
+      provider,
+      authority.publicKey,
+      [authority],
+      ...[ix]
+    );
 
     console.log("txId:", txId);
   });
