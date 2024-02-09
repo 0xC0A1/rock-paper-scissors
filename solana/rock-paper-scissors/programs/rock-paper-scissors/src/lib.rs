@@ -1,3 +1,5 @@
+// Allowing ambiguous glob reexports is necessary to make processor calls work
+#![allow(ambiguous_glob_reexports)]
 pub mod constants;
 pub mod error;
 pub mod instructions;

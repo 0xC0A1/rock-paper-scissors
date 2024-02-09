@@ -9,20 +9,19 @@ import { IDL, RockPaperScissors } from "../target/types/rock_paper_scissors";
 import { buildEscrowPda, buildGamePda, buildSettingsPda } from "./lib/pda";
 import { readWalletFromFile, sendSignedVersionedTx } from "./lib/solana";
 import {
-  ACCOUNT_SIZE,
   ASSOCIATED_TOKEN_PROGRAM_ID,
-  AccountLayout,
   TOKEN_PROGRAM_ID,
   getAssociatedTokenAddressSync,
 } from "@solana/spl-token";
 import { BN } from "bn.js";
 import { Choice, choiceToString } from "./lib/choice";
 import { getHashedSaltAndChoice, getSalt } from "./lib/hashing";
+import { buildAccounts as buildTestAccounts } from "./test-accounts";
 
 const MAINNET_RPC =
   process.env.MAINNET_RPC || "https://api.mainnet-beta.solana.com";
 
-const USDC_MINT = new anchor.web3.PublicKey(
+export const USDC_MINT = new anchor.web3.PublicKey(
   "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v"
 );
 
@@ -30,6 +29,9 @@ const TIME_FOR_PENALIZATION = new anchor.BN(60 * 60 * 24 * 7);
 const TIME_FOR_STALE = new anchor.BN(60 * 60 * 24 * 7);
 const PREV_FEE_LAMPORTS = new anchor.BN(0.02 * anchor.web3.LAMPORTS_PER_SOL);
 const FEE_LAMPORTS = new anchor.BN(0.025 * anchor.web3.LAMPORTS_PER_SOL);
+
+const readTomlFile = async (path: string) =>
+  toml.parse(await fs.readFile(path, "utf-8"));
 
 const FIRST_GAME = {
   gameId: "game1",
@@ -40,62 +42,56 @@ const FIRST_GAME = {
   amountToMatch: new BN(10_000000000),
 };
 
-const buildLocalTestAta = (
-  mint: anchor.web3.PublicKey,
-  owner: anchor.web3.PublicKey,
-  amount: number
-) => {
-  const ataBuffer = Buffer.alloc(ACCOUNT_SIZE);
-  AccountLayout.encode(
-    {
-      mint,
-      owner,
-      amount: BigInt(amount),
-      delegateOption: 0,
-      delegate: anchor.web3.PublicKey.default,
-      delegatedAmount: BigInt(0),
-      state: 1,
-      isNativeOption: 0,
-      isNative: BigInt(0),
-      closeAuthorityOption: 0,
-      closeAuthority: anchor.web3.PublicKey.default,
-    },
-    ataBuffer
-  );
-  return ataBuffer;
-};
-
-const readTomlFile = async (path: string) =>
-  toml.parse(await fs.readFile(path, "utf-8"));
-
+// Anchor + Bankrun Tooling
 let context: ProgramTestContext;
 let provider: BankrunProvider;
-let rpsProgram: anchor.Program<RockPaperScissors>;
+let program: anchor.Program<RockPaperScissors>;
 
-let settingsPda: anchor.web3.PublicKey;
-let firstGamePda: anchor.web3.PublicKey;
-
+/**
+ * Treasury authority
+ */
 let authority: anchor.web3.Keypair;
+/**
+ * Global settings
+ */
+let settingsPda: anchor.web3.PublicKey;
 
+/**
+ * First player
+ */
 const firstPlayer = anchor.web3.Keypair.generate();
+/**
+ * First player's USDC token account
+ */
 let firstPlayerAta: anchor.web3.PublicKey;
-let firstPlayerEscrowAta: anchor.web3.PublicKey;
+/**
+ * Second player
+ */
 const secondPlayer = anchor.web3.Keypair.generate();
+/**
+ * Second player's USDC token account
+ */
 let secondPlayerAta: anchor.web3.PublicKey;
-let secondPlayerEscrowAta: anchor.web3.PublicKey;
+
+/**
+ * First game
+ */
+let firstGamePda: anchor.web3.PublicKey;
+/**
+ * First player's escrow
+ */
+let firstGameFirstPlayerEscrowAta: anchor.web3.PublicKey;
+/**
+ * Second player's escrow
+ */
+let firstGameSecondPlayerEscrowAta: anchor.web3.PublicKey;
 
 describe("Rock Paper Scissors - Happy Path", () => {
   before(async () => {
     const mainnetConnection = new anchor.web3.Connection(MAINNET_RPC);
     const anchorToml = (await readTomlFile("Anchor.toml")) as {
-      programs: {
-        localnet: {
-          rock_paper_scissors: string;
-        };
-      };
-      provider: {
-        wallet: string;
-      };
+      programs: { localnet: { rock_paper_scissors: string } };
+      provider: { wallet: string };
     };
     authority = await readWalletFromFile(anchorToml.provider.wallet);
     firstPlayerAta = getAssociatedTokenAddressSync(
@@ -115,75 +111,17 @@ describe("Rock Paper Scissors - Happy Path", () => {
     context = await startAnchor(
       "./",
       [],
-      [
-        // Let's pull USDC mint from mainnet for testing purposes only
-        {
-          address: USDC_MINT,
-          info: await mainnetConnection.getAccountInfo(USDC_MINT),
-        },
-        // Allocate 1 sol to authority for gas and fees
-        {
-          address: authority.publicKey,
-          info: {
-            data: Buffer.alloc(0),
-            lamports: 1_000000000,
-            owner: anchor.web3.SystemProgram.programId,
-            executable: false,
-          },
-        },
-        // Allocate 1 sol to first player for gas and fees
-        {
-          address: firstPlayer.publicKey,
-          info: {
-            data: Buffer.alloc(0),
-            lamports: 1_000000000,
-            owner: anchor.web3.SystemProgram.programId,
-            executable: false,
-          },
-        },
-        // Allocate 1 sol to second player for gas and fees
-        {
-          address: secondPlayer.publicKey,
-          info: {
-            data: Buffer.alloc(0),
-            lamports: 1_000000000,
-            owner: anchor.web3.SystemProgram.programId,
-            executable: false,
-          },
-        },
-        // Allocate 100 USDC to first player [Printer go brrrr]
-        {
-          address: firstPlayerAta,
-          info: {
-            data: buildLocalTestAta(
-              USDC_MINT,
-              firstPlayer.publicKey,
-              100_000000000
-            ),
-            lamports: 1_000000000,
-            owner: TOKEN_PROGRAM_ID,
-            executable: false,
-          },
-        },
-        // Allocate 100 USDC to second player [Printer go brrrr]
-        {
-          address: secondPlayerAta,
-          info: {
-            data: buildLocalTestAta(
-              USDC_MINT,
-              secondPlayer.publicKey,
-              100_000000000
-            ),
-            lamports: 1_000000000,
-            owner: TOKEN_PROGRAM_ID,
-            executable: false,
-          },
-        },
-      ]
+      await buildTestAccounts(
+        authority.publicKey,
+        firstPlayer.publicKey,
+        firstPlayerAta,
+        secondPlayer.publicKey,
+        secondPlayerAta,
+        mainnetConnection
+      )
     );
     provider = new BankrunProvider(context);
-
-    rpsProgram = new anchor.Program<RockPaperScissors>(
+    program = new anchor.Program<RockPaperScissors>(
       IDL,
       anchorToml.programs.localnet.rock_paper_scissors,
       provider
@@ -191,9 +129,9 @@ describe("Rock Paper Scissors - Happy Path", () => {
   });
 
   it("Initializes settings", async () => {
-    const [settings] = buildSettingsPda(rpsProgram);
+    const [settings] = buildSettingsPda(program);
 
-    const ix = await rpsProgram.methods
+    const ix = await program.methods
       .initializeSettings(
         TIME_FOR_PENALIZATION,
         TIME_FOR_STALE,
@@ -219,7 +157,7 @@ describe("Rock Paper Scissors - Happy Path", () => {
   });
 
   it("Updates settings", async () => {
-    const ix = await rpsProgram.methods
+    const ix = await program.methods
       .updateSettings(TIME_FOR_PENALIZATION, TIME_FOR_STALE, FEE_LAMPORTS)
       .accountsStrict({
         settings: settingsPda,
@@ -237,20 +175,20 @@ describe("Rock Paper Scissors - Happy Path", () => {
     console.log("txId:", txId);
   });
 
-  it("Initializes a game", async () => {
+  it("[First Game] First player: Initializes first game", async () => {
     const [game] = buildGamePda(
-      rpsProgram,
+      program,
       firstPlayer.publicKey,
       FIRST_GAME.gameId
     );
-    const [escrow] = buildEscrowPda(rpsProgram, game, firstPlayer.publicKey);
+    const [escrow] = buildEscrowPda(program, game, firstPlayer.publicKey);
 
     const hash = await getHashedSaltAndChoice(
       FIRST_GAME.firstPlayerChoice,
       FIRST_GAME.firstPlayerSalt
     );
 
-    const ix = await rpsProgram.methods
+    const ix = await program.methods
       .initializeGame(FIRST_GAME.gameId, FIRST_GAME.amountToMatch, [...hash])
       .accountsStrict({
         game,
@@ -272,15 +210,15 @@ describe("Rock Paper Scissors - Happy Path", () => {
       ...[ix]
     );
 
-    firstPlayerEscrowAta = escrow;
+    firstGameFirstPlayerEscrowAta = escrow;
     firstGamePda = game;
 
     console.log("txId:", txId);
   });
 
-  it("Joins a game", async () => {
+  it("[First Game] Second player: Joins first game", async () => {
     const [escrow] = buildEscrowPda(
-      rpsProgram,
+      program,
       firstGamePda,
       secondPlayer.publicKey
     );
@@ -290,7 +228,7 @@ describe("Rock Paper Scissors - Happy Path", () => {
       FIRST_GAME.secondPlayerSalt
     );
 
-    const ix = await rpsProgram.methods
+    const ix = await program.methods
       .joinGame([...hash])
       .accountsStrict({
         game: firstGamePda,
@@ -312,13 +250,13 @@ describe("Rock Paper Scissors - Happy Path", () => {
       ...[ix]
     );
 
-    secondPlayerEscrowAta = escrow;
+    firstGameSecondPlayerEscrowAta = escrow;
 
     console.log("txId:", txId);
   });
 
-  it("First player reveals", async () => {
-    const ix = await rpsProgram.methods
+  it("[First Game] First player: Reveals for first game", async () => {
+    const ix = await program.methods
       .revealChoice(
         { [choiceToString(FIRST_GAME.firstPlayerChoice)]: {} } as any,
         [...FIRST_GAME.firstPlayerSalt]
@@ -339,8 +277,8 @@ describe("Rock Paper Scissors - Happy Path", () => {
     console.log("txId:", txId);
   });
 
-  it("Second player reveals", async () => {
-    const ix = await rpsProgram.methods
+  it("[First Game] Second player: Reveals for first game", async () => {
+    const ix = await program.methods
       .revealChoice(
         { [choiceToString(FIRST_GAME.secondPlayerChoice)]: {} } as any,
         [...FIRST_GAME.secondPlayerSalt]
@@ -361,17 +299,17 @@ describe("Rock Paper Scissors - Happy Path", () => {
     console.log("txId:", txId);
   });
 
-  it("Settles the game", async () => {
-    const ix = await rpsProgram.methods
+  it("[First Game] Permissionless: Settles first game", async () => {
+    const ix = await program.methods
       .settleGame()
       .accountsStrict({
         game: firstGamePda,
         mint: USDC_MINT,
         firstPlayer: firstPlayer.publicKey,
-        firstPlayerEscrowTokenAccount: firstPlayerEscrowAta,
+        firstPlayerEscrowTokenAccount: firstGameFirstPlayerEscrowAta,
         firstPlayerTokenAccount: firstPlayerAta,
         secondPlayer: secondPlayer.publicKey,
-        secondPlayerEscrowTokenAccount: secondPlayerEscrowAta,
+        secondPlayerEscrowTokenAccount: firstGameSecondPlayerEscrowAta,
         secondPlayerTokenAccount: secondPlayerAta,
         settings: settingsPda,
         signer: authority.publicKey,
